@@ -8,7 +8,6 @@ import org.example.service.UserService;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -18,7 +17,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 
 @Service
-public class UserServiceImpl implements UserDetailsService, UserService {
+public class UserServiceImpl implements UserService {
 
     private final PasswordEncoder passwordEncoder;
     private final VerificationServiceImpl verificationService;
@@ -38,11 +37,11 @@ public class UserServiceImpl implements UserDetailsService, UserService {
         if (user == null) {
             throw new UsernameNotFoundException("User not found with username or email: " + username);
         }
-        return new org.springframework.security.core.userdetails.User(username, "", new ArrayList<>());
+        return new org.springframework.security.core.userdetails.User(user.getUsername(), user.getPassword(), new ArrayList<>());
     }
 
     @Override
-    public void sendVerificationCode(String email) throws ApiException {
+    public void sendVerificationCode(String email) {
         if (verificationService.canSendCode(email)) {
             String code = verificationService.generateVerificationCode(email);
             try {
@@ -58,7 +57,7 @@ public class UserServiceImpl implements UserDetailsService, UserService {
     }
 
     @Override
-    public void register(User user, String verificationCode) throws ApiException{
+    public void register(User user, String verificationCode) {
         if (userRepository.findByUsername(user.getUsername()) != null) {
             throw new ApiException("Username already exists", HttpStatus.BAD_REQUEST);
         }

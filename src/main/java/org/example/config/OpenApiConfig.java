@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class OpenApiConfig {
 
+    // 定义全局的OpenAPI配置
     @Bean
     public OpenAPI customOpenAPI() {
         return new OpenAPI()

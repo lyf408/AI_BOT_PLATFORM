@@ -11,8 +11,13 @@ spring:
     hibernate:
       ddl-auto: update
       dialect: org.hibernate.dialect.PostgreSQL92Dialect
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         temp:
           use_jdbc_metadata_defaults: true
+
+okhttp:
+  connect-timeout-seconds: 30
+  read-timeout-seconds: 30
+  write-timeout-seconds: 30

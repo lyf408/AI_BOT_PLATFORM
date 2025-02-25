@@ -8,7 +8,7 @@ import org.example.model.dto.authDTO.LoginRequest;
 import org.example.model.dto.authDTO.PasswordResetRequest;
 import org.example.model.dto.authDTO.RegisterRequest;
 import org.example.model.entity.User;
-import org.example.service.impl.UserServiceImpl;
+import org.example.service.UserService;
 import org.example.util.JwtUtil;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,14 +22,15 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/auth")
-@Tag(name = "Authentication API", description = "APIs for login, register, password reset and email verification")
+@Tag(name = "Authentication", description = "APIs for login, register, password reset and email verification")
 public class AuthController {
 
-    private final UserServiceImpl userService;
+    private final UserService userService;
     private final AuthenticationManager authenticationManager;
     private final JwtUtil jwtUtil;
 
     @PostMapping("/verification")
+    @Operation(summary = "Send verification code", description = "Send verification code to email", operationId = "1")
     public ResponseEntity<?> verification(@RequestParam String email) {
         userService.sendVerificationCode(email);
         return ResponseEntity.ok("success sent to " + email);
@@ -54,13 +55,13 @@ public class AuthController {
                     new UsernamePasswordAuthenticationToken(loginRequest.getUsernameOrEmail(), loginRequest.getPassword())
             );
         } catch (BadCredentialsException e) {
-            return ResponseEntity.badRequest().body("Incorrect username or password");
+            return new ResponseEntity<>("Incorrect username or password", HttpStatus.BAD_REQUEST);
         }
         UserDetails userDetails = null;
         try {
             userDetails = userService.loadUserByUsername(loginRequest.getUsernameOrEmail());
         } catch (UsernameNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found");
+            return new ResponseEntity<>("User not found", HttpStatus.BAD_REQUEST);
         }
         final String jwt = jwtUtil.generateToken(userDetails);
         return ResponseEntity.ok(jwt);

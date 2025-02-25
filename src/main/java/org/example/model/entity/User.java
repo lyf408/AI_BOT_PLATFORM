@@ -37,7 +37,7 @@ public class User {
     private Timestamp updatedAt;
 
     @Column(nullable = false)
-    private String avatarUrl = "default_avatar.png";
+    private String avatarUrl = "default_user_avatar.png";
 
     @Column(nullable = false, columnDefinition = "TEXT")
     private String bio = "";
