@@ -49,7 +49,8 @@ public class ModelController {
     }
 
     @DeleteMapping("/{modelId}")
-    @Operation(summary = "Delete model", description = "Delete model")
+    @Operation(summary = "Delete model", description = "Delete model. Warning: This action will also delete all the related " +
+            "bots and chat history, which is irreversible. Please use with caution!!!")
     public ResponseEntity<?> deleteModel(@AuthenticationPrincipal UserDetails userDetails,
                                          @PathVariable Long modelId) {
         User user = userRepository.findByUsername(userDetails.getUsername());

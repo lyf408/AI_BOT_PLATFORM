@@ -6,13 +6,11 @@ import lombok.RequiredArgsConstructor;
 import okhttp3.*;
 import okio.BufferedSource;
 import org.example.exception.ApiException;
+import org.example.model.dto.botDTO.ChatHistoryResponse;
 import org.example.model.dto.botDTO.CreateBotRequest;
 import org.example.model.dto.botDTO.UpdateBotRequest;
 import org.example.model.entity.*;
-import org.example.repository.BotRepository;
-import org.example.repository.ChatHistoryRepository;
-import org.example.repository.ModelRepository;
-import org.example.repository.SessionRepository;
+import org.example.repository.*;
 import org.example.service.BotService;
 import org.jetbrains.annotations.NotNull;
 import org.json.JSONObject;
@@ -22,6 +20,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.UUID;
@@ -36,6 +36,7 @@ public class BotServiceImpl implements BotService {
     private final ModelRepository modelRepository;
     private final SessionRepository sessionRepository;
     private final ChatHistoryRepository chatHistoryRepository;
+    private final CreditHistoryRepository creditHistoryRepository;
 
     @Value("${okhttp.connect-timeout-seconds}")
     private int connectTimeout;
@@ -65,6 +66,24 @@ public class BotServiceImpl implements BotService {
         Model model = modelRepository.findById(createBotRequest.getModelId()).orElse(null);
         bot.setModel(model);
         bot.setCreator(user);
+        bot.setCreatedAt(Timestamp.from(java.time.Instant.now()));
+        bot.setUpdatedAt(Timestamp.from(java.time.Instant.now()));
+        return botRepository.save(bot);
+    }
+
+    @Override
+    public Bot createOfficialBot(User user, CreateBotRequest createBotRequest) {
+        if (user.getRole().equals(User.Role.USER)) {
+            throw new ApiException("You are not allowed to create an official bot", HttpStatus.FORBIDDEN);
+        }
+        Bot bot = createBotRequest.toBot();
+        if (botRepository.findByBotName(bot.getBotName()) != null) {
+            throw new ApiException("Bot name already exists", HttpStatus.BAD_REQUEST);
+        }
+        Model model = modelRepository.findById(createBotRequest.getModelId()).orElse(null);
+        bot.setModel(model);
+        bot.setCreator(user);
+        bot.setBotType(Bot.BotType.OFFICIAL);
         bot.setCreatedAt(Timestamp.from(java.time.Instant.now()));
         bot.setUpdatedAt(Timestamp.from(java.time.Instant.now()));
         return botRepository.save(bot);
@@ -117,10 +136,11 @@ public class BotServiceImpl implements BotService {
         bot.setDescription("Original Bot Name: " + bot.getBotName() +
                 "\nOriginal Description: " + bot.getDescription());
         String deletedName = null;
-        while (botRepository.findByBotName(deletedName) != null) {
+         do {
             UUID uuid = UUID.randomUUID();
             deletedName = "deleted-" + uuid;
-        }
+        } while (botRepository.findByBotName(deletedName) != null);
+
         bot.setBotName(deletedName);
         botRepository.save(bot);
     }
@@ -181,8 +201,58 @@ public class BotServiceImpl implements BotService {
     }
 
     @Override
+    public void updateSessionMaxTokens(User user, Long sessionId, Integer maxTokens) {
+        Session session = sessionRepository.findBySessionId(sessionId);
+        if (session == null) {
+            throw new ApiException("Session not found", HttpStatus.NOT_FOUND);
+        }
+        if (user == null) {
+            throw new ApiException("User not found", HttpStatus.NOT_FOUND);
+        }
+        if (!session.getUser().equals(user)) {
+            throw new ApiException("You are not allowed to update this session", HttpStatus.FORBIDDEN);
+        }
+        if (!session.getBot().getActive()) {
+            throw new ApiException("Bot already deleted", HttpStatus.BAD_REQUEST);
+        }
+        session.setMaxTokens(maxTokens);
+        session.setUpdatedAt(Timestamp.from(java.time.Instant.now()));
+        sessionRepository.save(session);
+    }
+
+    @Override
+    public List<ChatHistoryResponse> getSessionChatHistory(User user, Long sessionId) {
+        Session session = getSession(user, sessionId);
+        List<ChatHistory> chatHistories = chatHistoryRepository.findAllBySession(session);
+        List<ChatHistoryResponse> chatHistoryResponses = ChatHistoryResponse.fromChatHistories(chatHistories);
+        return chatHistoryResponses;
+    }
+
+    @Override
     public ChatHistory chat(User user, Long sessionId, String message) {
         Session session = getSession(user, sessionId);
+        if (message == null || message.isEmpty()) {
+            throw new ApiException("Message cannot be empty", HttpStatus.BAD_REQUEST);
+        }
+        if (!session.getBot().getActive()) {
+            throw new ApiException("Bot already deleted", HttpStatus.BAD_REQUEST);
+        }
+        BigDecimal cost = BigDecimal.valueOf(session.getBot().getModel().getCostRate())
+                .multiply(BigDecimal.valueOf(session.getMaxTokens()))
+                .divide(BigDecimal.valueOf(100), RoundingMode.CEILING);
+        if (user.getCredits().compareTo(cost) < 0) {
+            throw new ApiException("Insufficient credits", HttpStatus.BAD_REQUEST);
+        }
+        user.setCredits(user.getCredits().subtract(cost));
+        user.setUpdatedAt(Timestamp.from(java.time.Instant.now()));
+
+        CreditHistory creditHistory = new CreditHistory();
+        creditHistory.setUser(user);
+        creditHistory.setAmount(cost.negate());
+        creditHistory.setDescription("Chat with bot " + session.getBot().getBotName());
+        creditHistory.setCreatedAt(Timestamp.from(java.time.Instant.now()));
+        creditHistory.setUpdatedAt(Timestamp.from(java.time.Instant.now()));
+        creditHistoryRepository.save(creditHistory);
 
         ChatHistory chatHistory = new ChatHistory();
         chatHistory.setSession(session);
@@ -196,7 +266,8 @@ public class BotServiceImpl implements BotService {
     @Override
     public SseEmitter getChatResponseStream(User user, Long sessionId, Long lastMessageId) {
         Session session = getSession(user, sessionId);
-
+        session.setUpdatedAt(Timestamp.from(java.time.Instant.now()));
+        sessionRepository.save(session);
         List<ChatHistory> chatHistoryList = chatHistoryRepository.findAllBySessionBeforeMessage(sessionId, lastMessageId);
 
         JsonObject requestBody = new JsonObject();
@@ -293,13 +364,11 @@ public class BotServiceImpl implements BotService {
             throw new ApiException("User not found", HttpStatus.NOT_FOUND);
         }
         if (!session.getUser().equals(user)) {
-            throw new ApiException("You are not allowed to send messages to this session", HttpStatus.FORBIDDEN);
+            throw new ApiException("You are not allowed to view this session", HttpStatus.FORBIDDEN);
         }
         if (!session.getBot().getActive()) {
             throw new ApiException("Bot already deleted", HttpStatus.BAD_REQUEST);
         }
-        session.setUpdatedAt(Timestamp.from(java.time.Instant.now()));
-        sessionRepository.save(session);
         return session;
     }
 }

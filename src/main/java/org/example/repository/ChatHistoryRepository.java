@@ -23,5 +23,7 @@ public interface ChatHistoryRepository extends JpaRepository<ChatHistory, Long> 
     List<ChatHistory> findAllBySessionBeforeMessage(@Param("sessionId") Long sessionId,
                                                     @Param("lastMessageId") Long lastMessageId);
 
+    List<ChatHistory> findAllBySession(Session session);
+
     void deleteAllBySession(Session session);
 }
