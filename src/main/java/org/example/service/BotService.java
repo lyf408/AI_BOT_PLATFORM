@@ -24,4 +24,5 @@ public interface BotService {
     List<ChatHistoryResponse> getSessionChatHistory(User user, Long sessionId);
     ChatHistory chat(User user, Long sessionId, String message);
     SseEmitter getChatResponseStream(User user, Long sessionId, Long lastMessageId);
+    List<String> predictNextMessage(Long messageId);
 }

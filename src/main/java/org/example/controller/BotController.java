@@ -135,4 +135,11 @@ public class BotController {
         User user = userRepository.findByUsername(userDetails.getUsername());
         return botService.getChatResponseStream(user, sessionId, lastMessageId);
     }
+
+    @GetMapping("/predict")
+    @Operation(summary = "Predict next message", description = "Predict next message by messageId")
+    public ResponseEntity<?> predictNextMessage(@RequestParam Long messageId) {
+        List<String> predictions = botService.predictNextMessage(messageId);
+        return ResponseEntity.ok(predictions);
+    }
 }

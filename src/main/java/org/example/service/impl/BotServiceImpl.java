@@ -23,6 +23,8 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -269,7 +271,7 @@ public class BotServiceImpl implements BotService {
         session.setUpdatedAt(Timestamp.from(java.time.Instant.now()));
         sessionRepository.save(session);
         List<ChatHistory> chatHistoryList = chatHistoryRepository.findAllBySessionBeforeMessage(sessionId, lastMessageId);
-
+        Collections.reverse(chatHistoryList);
         JsonObject requestBody = new JsonObject();
 
         JsonArray messages = new JsonArray();
@@ -352,6 +354,75 @@ public class BotServiceImpl implements BotService {
         });
 
         return emitter;
+    }
+
+    @Override
+    public List<String> predictNextMessage(Long messageId) {
+        ChatHistory chatHistory = chatHistoryRepository.findById(messageId).orElse(null);
+        if (chatHistory == null) {
+            throw new ApiException("Chat history not found", HttpStatus.NOT_FOUND);
+        }
+        JsonObject requestBody = new JsonObject();
+        JsonArray messages = new JsonArray();
+        JsonObject systemMessage = new JsonObject();
+        systemMessage.addProperty("role", "system");
+        systemMessage.addProperty("content", """
+                You are an intelligent chat assistant that can predict the user's next message based on the messages they send.
+                ###Task:
+                1. Analyze user messages.
+                2. Provide three predictions for the user's next message, starting with "-pred=- ".
+                3. Make message predictions based on the user's language. If the user uses Chinese, use Chinese to make predictions.
+                ###Input:
+                - User: Hello, I would like to know more about your products.
+                ###Output format:
+                -pred=- How are your products priced?
+                -pred=- Do you have any other products?
+                -pred=- What are the advantages of your product compared to competitors?
+                """);
+        messages.add(systemMessage);
+        JsonObject userMessage = new JsonObject();
+        userMessage.addProperty("role", "user");
+        userMessage.addProperty("content", chatHistory.getContent());
+        messages.add(userMessage);
+        requestBody.add("messages", messages);
+        requestBody.addProperty("stream", false);
+        requestBody.addProperty("model", "gpt-3.5-turbo");
+        requestBody.addProperty("temperature", 0.8);
+        requestBody.addProperty("max_tokens", 256);
+        RequestBody body = RequestBody.create(requestBody.toString(), mediaType);
+        Request request = new Request.Builder()
+                .url("https://xiaoai.plus/v1/chat/completions")
+                .post(body)
+                .addHeader("Authorization", "Bearer sk-WXMk631iKpu1J2Ql6GnCVLRt2YwOeLXALEqx6X1BmPuIMsRg")
+                .addHeader("Content-Type", "application/json")
+                .build();
+        try (Response response = okHttpClient.newCall(request).execute()){
+            if (response.isSuccessful() && response.body() != null) {
+                BufferedSource source = response.body().source();
+                String line = source.readUtf8Line();
+                if (line != null && !line.isEmpty()) {
+                    JSONObject jsonResponse = new JSONObject(line);
+                    if (jsonResponse.has("choices")) {
+                        JSONObject choice = jsonResponse.getJSONArray("choices").getJSONObject(0);
+                        if (choice.has("message") && choice.getJSONObject("message").has("content")) {
+                            String prediction = choice.getJSONObject("message").getString("content");
+                            String[] predictions = prediction.replace("\n", "").split("-pred=- ");
+                            List<String> predictionList = new ArrayList<>();
+                            for (String s : predictions) {
+                                s = s.trim();
+                                if (!s.isEmpty()) {
+                                    predictionList.add(s);
+                                }
+                            }
+                            return predictionList;
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new ApiException("Request failed", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+        return List.of();
     }
 
     @NotNull
